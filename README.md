@@ -19,7 +19,7 @@ Declare the plugin dependency in the _build.gradle_ file, as shown here:
 ```groovy
 dependencies {
     ...
-    compile("org.grails.plugins:sentry:11.7.25")
+    compile("org.grails.plugins:sentry:17.14.0")
     ...
 }
 ```
@@ -103,31 +103,38 @@ All application exceptions will be logged on sentry by the appender.
 The appender is configured to log just the `ERROR` and `WARN` levels.
 To log manually just use the `log.error()` method.
 
-## sentryClient
+## Sentry API
 
-You also can use `sentryClient` to sent info messages to Sentry:
+You can use Sentry's static API to send info messages to Sentry:
 
 ```groovy
-import io.sentry.SentryClient
-import io.sentry.event.Event
-import io.sentry.event.EventBuilder
-import io.sentry.event.interfaces.ExceptionInterface
-
-SentryClient sentryClient // To inject Spring bean raven client in your controllers or services
+import io.sentry.Sentry
+import io.sentry.SentryLevel
 
 // Send simple message
-sentryClient?.sendMessage("some message")
+Sentry.captureMessage("some message")
+
+// Send message with level
+Sentry.captureMessage("some warning", SentryLevel.WARNING)
 
 // Send exception
-sentryClient?.sendException(new Exception("some exception"))
+Sentry.captureException(new Exception("some exception"))
 
-// Custom event
-EventBuilder eventBuilder = new EventBuilder()
-           .withMessage("This is a test")
-           .withLevel(Event.Level.INFO)
-           .withLogger(MyClass.class.name)
+// Set context
+Sentry.configureScope { scope ->
+    scope.setTag("transaction", "user-signup")
+    scope.setExtra("environment", "production")
+}
 
-sentryClient?.sendEvent(eventBuilder.build())
+// Capture exception with additional context
+try {
+    // some code
+} catch (Exception e) {
+    Sentry.configureScope { scope ->
+        scope.setExtra("key", "value")
+    }
+    Sentry.captureException(e)
+}
 ```
 
 # Latest releases
@@ -156,6 +163,15 @@ sentryClient?.sendEvent(eventBuilder.build())
 * 2016-04-12 **V7.1.0.1** : minor update
 * 2016-04-06 **V7.1.0** : upgrade Raven java lib to 7.1.0, thanks to [donbeave](https://github.com/donbeave) PR (WARNING: Raven package has been renamed from `net.kencochrane.raven` to `com.getsentry.raven`)
 * 2015-08-31 **V6.0.0** : initial release for Grails 3.x
+
+## Migration from 1.x to 7.x
+
+The v17.14.0 release includes a major upgrade from Sentry Java SDK 1.7.25 to 7.14.0. Key changes:
+
+- **API Changes**: The old `SentryClient` bean is replaced with static `Sentry` API
+- **Event Building**: Use `Sentry.captureMessage()` and `Sentry.captureException()` instead of `sentryClient.sendMessage()`
+- **Context Management**: Use `Sentry.configureScope()` for setting tags, extras, and user information
+- **Compatibility**: Tested with Grails 3.3.8 and Spring Boot 1.5.x
 
 ## Bugs
 
