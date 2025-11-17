@@ -23,9 +23,7 @@ import groovy.transform.CompileStatic
 import groovy.transform.TypeCheckingMode
 import groovy.util.logging.Slf4j
 import io.sentry.Sentry
-import io.sentry.SentryClient
-import io.sentry.dsn.Dsn
-import io.sentry.servlet.SentryServletRequestListener
+import io.sentry.SentryOptions
 import org.slf4j.LoggerFactory
 import org.springframework.boot.web.servlet.FilterRegistrationBean
 
@@ -59,24 +57,38 @@ class SentryGrailsPlugin extends Plugin {
             }
 
             if (pluginConfig?.dsn) {
-                log.info 'Sentry config found, creating Sentry client and corresponding Logback appender'
-                sentryClientFactoryProvider(SentryClientFactoryProvider)
-                Dsn realDsn = new Dsn(pluginConfig.dsn.toString())
-                sentryFactory(sentryClientFactoryProvider: 'createFactory', realDsn)
-                sentryClient(sentryFactory: 'createSentryClient', realDsn) { bean ->
-                    bean.autowire = 'byName'
+                log.info 'Sentry config found, initializing Sentry SDK and corresponding Logback appender'
+                
+                // Initialize Sentry with options
+                Sentry.init { SentryOptions options ->
+                    options.dsn = pluginConfig.dsn.toString()
+                    
+                    if (pluginConfig.environment) {
+                        options.environment = pluginConfig.environment
+                    }
+                    
+                    if (pluginConfig.serverName) {
+                        options.serverName = pluginConfig.serverName
+                    }
+                    
+                    String release = grailsApplication.metadata['info.app.version']
+                    if (release) {
+                        options.release = release
+                    }
+                    
+                    // Set tags
+                    if (pluginConfig.tags) {
+                        pluginConfig.tags.each { key, value ->
+                            options.setTag(key, value)
+                        }
+                    }
                 }
+                
                 sentryAppender(GrailsLogbackSentryAppender, pluginConfig, grailsApplication.metadata['info.app.version'])
-
-                if (pluginConfig.logHttpRequest) {
-                    sentryServletRequestListener(SentryServletRequestListener)
-                }
 
                 if (pluginConfig.springSecurityUser) {
                     springSecurityUserEventBuilderHelper(SpringSecurityUserEventBuilderHelper, pluginConfig) {
                         springSecurityService = ref('springSecurityService')
-                        if (pluginConfig.logHttpRequest)
-                            sentryServletRequestListener = ref('sentryServletRequestListener')
                     }
                 }
 
@@ -102,8 +114,9 @@ class SentryGrailsPlugin extends Plugin {
 
         if (pluginConfig.springSecurityUser) {
             def springSecurityUserEventBuilderHelper = applicationContext.getBean(SpringSecurityUserEventBuilderHelper)
-            def sentryClient = applicationContext.getBean(SentryClient)
-            sentryClient.addBuilderHelper(springSecurityUserEventBuilderHelper)
+            Sentry.configureScope { scope ->
+                scope.addEventProcessor(springSecurityUserEventBuilderHelper)
+            }
         }
 
         GrailsLogbackSentryAppender appender = applicationContext.getBean(GrailsLogbackSentryAppender)
@@ -118,12 +131,6 @@ class SentryGrailsPlugin extends Plugin {
             }
             appender.setContext(loggerContext)
             appender.start()
-        }
-
-        SentryClient client = applicationContext.getBean(SentryClient)
-        if (client) {
-            // override any created by default
-            Sentry.setStoredClient(client)
         }
     }
 

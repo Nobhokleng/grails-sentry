@@ -17,25 +17,16 @@ package grails.plugin.sentry
 
 import groovy.transform.CompileStatic
 import groovy.transform.TypeCheckingMode
-import io.sentry.event.EventBuilder
-import io.sentry.event.helper.EventBuilderHelper
-import io.sentry.event.interfaces.UserInterface
-import io.sentry.servlet.SentryServletRequestListener
-
-import javax.servlet.http.HttpServletRequest
+import io.sentry.EventProcessor
+import io.sentry.SentryEvent
+import io.sentry.protocol.User
+import io.sentry.Hint
 
 /**
  * @author <a href='mailto:alexey@zhokhov.com'>Alexey Zhokhov</a>
  */
 @CompileStatic
-class SpringSecurityUserEventBuilderHelper implements EventBuilderHelper {
-
-    private static final List<String> IP_HEADERS = ['X-Real-IP',
-                                                    'Client-IP',
-                                                    'X-Forwarded-For',
-                                                    'Proxy-Client-IP',
-                                                    'WL-Proxy-Client-IP',
-                                                    'rlnclientipaddr']
+class SpringSecurityUserEventBuilderHelper implements EventProcessor {
 
     SentryConfig config
 
@@ -44,11 +35,10 @@ class SpringSecurityUserEventBuilderHelper implements EventBuilderHelper {
     }
 
     def springSecurityService
-    SentryServletRequestListener sentryServletRequestListener
 
     @CompileStatic(TypeCheckingMode.SKIP)
     @Override
-    void helpBuildingEvent(EventBuilder eventBuilder) {
+    SentryEvent process(SentryEvent event, Hint hint) {
         def isLoggedIn = springSecurityService?.isLoggedIn()
 
         if (isLoggedIn) {
@@ -77,35 +67,27 @@ class SpringSecurityUserEventBuilderHelper implements EventBuilderHelper {
 
                 def id = principal[idPropertyName].toString()
                 String username = principal[usernamePropertyName].toString()
-                String ipAddress = getIpAddress(sentryServletRequestListener?.getServletRequest())
                 String email = emailPropertyName ? principal[emailPropertyName].toString() : null
-                Map<String, Object> extraData = [:]
-                data.each { Object key ->
-                    extraData[key as String] = principal[key as String].toString()
+                
+                User user = new User()
+                user.id = id
+                user.username = username
+                user.email = email
+                
+                // Add extra data
+                if (data) {
+                    Map<String, String> extraData = [:]
+                    data.each { Object key ->
+                        extraData[key as String] = principal[key as String].toString()
+                    }
+                    user.data = extraData
                 }
-
-                UserInterface userInterface = new UserInterface(id, username, ipAddress, email, extraData)
-
-                eventBuilder.withSentryInterface(userInterface, true)
+                
+                event.user = user
             }
         }
-    }
-
-    private static String getIpAddress(HttpServletRequest request) {
-        String unknown = '127.0.0.1'
-        String ipAddress = unknown
-
-        if (request) {
-            IP_HEADERS.each { header ->
-                if (!ipAddress || unknown.equalsIgnoreCase(ipAddress))
-                    ipAddress = request.getHeader(header)
-            }
-
-            if (!ipAddress)
-                ipAddress = request.remoteAddr
-        }
-
-        return ipAddress
+        
+        return event
     }
 
 }
