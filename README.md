@@ -1,43 +1,45 @@
 Sentry Grails Plugin
 ====================
 
-[![Build Status](https://secure.travis-ci.org/agorapulse/grails-sentry.png?branch=master)](https://travis-ci.org/agorapulse/grails-sentry)
-[![Download](https://api.bintray.com/packages/agorapulse/plugins/sentry/images/download.svg)](https://bintray.com/agorapulse/plugins/sentry/_latestVersion)
-
-
 # Introduction
 
-Sentry plugin provides a Grails client for integrating apps with [Sentry](http://www.getsentry.com). 
-[Sentry](http://www.getsentry.com) is an event logging platform primarily focused on capturing and aggregating exceptions.
+Sentry plugin provides a Grails client for integrating apps with [Sentry](https://sentry.io).
+[Sentry](https://sentry.io) is an event logging platform primarily focused on capturing and aggregating exceptions.
 
-It uses the official [Sentry.io](https://github.com/getsentry/sentry-java) client under the cover.
+It uses the official [Sentry Java SDK](https://github.com/getsentry/sentry-java) (`io.sentry:sentry-logback`) under the cover.
+
+**Current versions:**
+
+| Plugin | Sentry Java SDK | Grails | Java |
+|--------|----------------|--------|------|
+| 17.14.0 | 7.14.0 | 3.3.8+ | 8+ |
 
 # Installation
 
-Declare the plugin dependency in the _build.gradle_ file, as shown here:
+Declare the plugin dependency in _build.gradle_:
 
 ```groovy
 dependencies {
-    ...
     compile("org.grails.plugins:sentry:17.14.0")
-    ...
 }
 ```
 
 # Config
 
-Add your Sentry DSN to your _grails-app/conf/application.yml_.
+Add your Sentry DSN to _grails-app/conf/application.yml_:
 
 ```yml
 grails:
     plugin:
         sentry:
-            dsn: https://{PUBLIC_KEY}:{SECRET_KEY}@app.getsentry.com/{PATH}{PROJECT_ID}
+            dsn: https://{PUBLIC_KEY}@o{ORG_ID}.ingest.sentry.io/{PROJECT_ID}
 ```
 
-The DSN can be found in project's _Settings_ under _Client Keys (DSN)_ section.
+The DSN can be found in your Sentry project under _Settings → Client Keys (DSN)_.
 
-The plugin will sent notifications to Sentry by default, if you want to disable notifications for an specific environment set the `active` option as false.
+> **Note:** Sentry SDK v7 uses a DSN format with only a public key — there is no secret key component. Copy the DSN directly from the Sentry dashboard.
+
+By default the plugin sends events in all environments. Disable it per-environment:
 
 ```yml
 environments:
@@ -53,140 +55,176 @@ environments:
                     active: false
 ```
 
-You can also configure the multiple logger to which you want to append the sentry appender.
-You can also set the server name, but it is recommended to don't set this configuration and let the plugin to resolve it.
-
-
 ## Optional configurations
 
 ```yml
-# Not tested on Grails 3 plugin...
 grails:
     plugin:
         sentry:
-            dsn: https://foo:bar@api.sentry.io/123
+            dsn: https://{PUBLIC_KEY}@o{ORG_ID}.ingest.sentry.io/{PROJECT_ID}
+            # Loggers to attach the Sentry appender to (defaults to root logger)
             loggers: [LOGGER1, LOGGER2, LOGGER3]
+            # Overrides the detected environment name
             environment: staging
             serverName: dev.server.com
+            # Log levels that trigger Sentry events (defaults to ERROR and WARN)
             levels: [ERROR]
-            tags: {tag1: val1,  tag2: val2, tag3: val3}
-            subsystems: 
-                MODULE1: [com.company.services.module1, com.company.controllers.module1]
-                MODULE2: [com.company.services.module2, com.company.controllers.module2]
-                MODULE3: [com.company.services.module3, com.company.controllers.module3]
-            logClassName: true
-            logHttpRequest: true
+            tags: {tag1: val1, tag2: val2, tag3: val3}
+            # Strip Groovy/Spring internal frames from stack traces
+            sanitizeStackTrace: true
+            # Disable Logback MDC servlet filter (enabled by default)
             disableMDCInsertingServletFilter: true
+            # Capture authenticated Spring Security user info on each event
             springSecurityUser: true
             springSecurityUserProperties:
                 id: 'id'
                 email: 'emailAddress'
                 username: 'login'
-                data: # Additional properties to be retrieved from user details object and passed as extra properties to Sentry user interface.
+                # Additional principal properties sent as Sentry user extras
+                data:
                     - 'authorities'
-            priorities: 
-                HIGH: [java.lang, com.microsoft.sqlserver.jdbc.SQLServerException]
-                MID: [com.company.exception]
-                LOW: [java.io]
 ```
 
-Check [Sentry-java](https://github.com/getsentry/sentry-java) documentation to configure connection, protocol and async options in your DSN. If you are sending extra tags from the plugin for the exceptions, make sure to enable the corresponding tag on sentry tag settings for the particular project to see the tag as a filter on the exception stream on sentry.
+> **`logClassName`:** In SDK v7 the logger name (which is the class name) is always captured automatically by `SentryAppender`. This option is a no-op.
 
+> **`logHttpRequest`:** HTTP request context capture requires the `sentry-spring` or `sentry-spring-boot` dependency, which is not bundled with this plugin. Enabling this option logs a warning. The Logback MDC servlet filter (enabled by default) still propagates available request attributes via MDC extras.
+
+> **`subsystems` / `priorities`:** Not yet implemented.
+
+You can also configure connection and protocol options in the DSN query string. See the [Sentry Java SDK documentation](https://docs.sentry.io/platforms/java/) for details.
 
 # Usage
 
 ## Logback Appender
 
-The Logback Appender is automatically configured by the plugin, you just have to set enabled environments as shown in Configuration section.
+The Logback Appender is automatically configured by the plugin. All application exceptions at `ERROR` and `WARN` level are forwarded to Sentry. To capture manually, use the standard logger:
 
-All application exceptions will be logged on sentry by the appender.
-The appender is configured to log just the `ERROR` and `WARN` levels.
-To log manually just use the `log.error()` method.
+```groovy
+log.error("Something went wrong", exception)
+```
 
-## Sentry API
+The following tags are automatically attached to every event:
 
-You can use Sentry's static API to send info messages to Sentry:
+| Tag | Value |
+|-----|-------|
+| `grails_app_name` | Application name from metadata |
+| `grails_version` | Grails version |
+| `environment` | Active Grails environment |
+| Any `tags` from config | As configured |
+
+Logback MDC context properties are attached as extras on each event.
+
+## Sentry Static API
+
+Use the `Sentry` static API for explicit event capture:
 
 ```groovy
 import io.sentry.Sentry
 import io.sentry.SentryLevel
 
-// Send simple message
-Sentry.captureMessage("some message")
+// Capture a simple message
+Sentry.captureMessage("something notable happened")
 
-// Send message with level
-Sentry.captureMessage("some warning", SentryLevel.WARNING)
+// Capture a message at a specific level
+Sentry.captureMessage("disk space low", SentryLevel.WARNING)
 
-// Send exception
-Sentry.captureException(new Exception("some exception"))
+// Capture an exception
+Sentry.captureException(new Exception("something failed"))
 
-// Set context
+// Add context to all subsequent events on this thread
 Sentry.configureScope { scope ->
     scope.setTag("transaction", "user-signup")
-    scope.setExtra("environment", "production")
+    scope.setExtra("planId", "pro-annual")
 }
 
-// Capture exception with additional context
-try {
-    // some code
-} catch (Exception e) {
-    Sentry.configureScope { scope ->
-        scope.setExtra("key", "value")
-    }
-    Sentry.captureException(e)
+// Add context to a single event only (isolated scope)
+Sentry.withScope { scope ->
+    scope.setExtra("orderId", "12345")
+    Sentry.captureException(exception)
 }
 ```
 
+# Migration guide
+
+## From v1.x (SDK 1.7.x) to v17.x (SDK 7.x)
+
+SDK v7 replaced the mutable `SentryClient` bean model with a static hub-based API. Remove any direct references to the `sentryClient` Spring bean.
+
+### Sending events
+
+```groovy
+// Before (v1.x)
+sentryClient.sendMessage("something happened")
+sentryClient.sendException(exception)
+
+// After (v7.x)
+Sentry.captureMessage("something happened")
+Sentry.captureException(exception)
+```
+
+### Adding context
+
+```groovy
+// Before (v1.x — EventBuilder)
+def eventBuilder = sentryClient.newEvent("message")
+    .withTag("key", "value")
+    .withExtra("extra", "data")
+sentryClient.send(eventBuilder.build())
+
+// After (v7.x — scope)
+Sentry.withScope { scope ->
+    scope.setTag("key", "value")
+    scope.setExtra("extra", "data")
+    Sentry.captureMessage("message")
+}
+```
+
+### What changed in the plugin
+
+- `SentryClientFactoryProvider` bean removed — use the static `Sentry` API directly.
+- `sanitizeStackTrace` is implemented via an `EventProcessor` registered at init time; it filters Groovy and Spring internal frames using `StackTraceUtils.isApplicationClass`.
+- Grails metadata tags and custom tags are set once in `SentryOptions` at startup (thread-safe), not on every log event.
+- The `release` field is set from `info.app.version` via `SentryOptions`.
+- `logHttpRequest` is not implemented in SDK v7 with `sentry-logback` alone.
+
 # Latest releases
 
+* 2026-04-30 **V17.14.0** : upgrade to Sentry Java SDK 7.14.0 with Grails 3.3.8 compatibility; migrated from `SentryClient` bean to static `Sentry` API; `sanitizeStackTrace` reimplemented via `EventProcessor`; thread-safe scope handling via `Sentry.withScope`
 * 2018-07-16 **V11.7.25** : upgrade Sentry java lib to 1.7.25 + stack trace sanitizer
 * 2018-07-16 **V11.7.24** : upgrade Sentry java lib to 1.7.24 + Grails 4 upgrade
 * 2018-05-18 **V11.7.4** : upgrade Sentry java lib to 1.7.4 + bug fixes
 * 2018-02-09 **V11.6.5** : upgrade Sentry java lib to 1.6.5 + bug fixes
 * 2017-11-09 **V11.4.0.3** : fixes
 * 2017-08-03 **V11.4.0.2** : fixes
-* 2017-08-03 **V11.4.0** : upgrade Sentry java lib to 1.4.0 + bug fix, thanks to [donbeave](https://github.com/donbeave) PR #37
-* 2017-07-17 **V11.3.0** : upgrade Sentry java lib to 1.3.0 + bug fix, thanks to [donbeave](https://github.com/donbeave) PR #34
-* 2017-07-04 **V11.2.0** : upgrade Sentry java lib to 1.2.0 (which replaces the deprecated Raven java lib)
+* 2017-08-03 **V11.4.0** : upgrade Sentry java lib to 1.4.0 + bug fix
+* 2017-07-17 **V11.3.0** : upgrade Sentry java lib to 1.3.0 + bug fix
+* 2017-07-04 **V11.2.0** : upgrade Sentry java lib to 1.2.0 (replaces deprecated Raven java lib)
 * 2017-06-06 **V8.0.3** : upgrade Raven java lib to 8.0.3
 * 2017-02-01 **V7.8.1** : upgrade Raven java lib to 7.8.1
-* 2016-11-22 **V7.8.0.2** : event environment support 
-* 2016-10-29 **V7.8.0.1** : minor bug fix, thanks to [donbeave](https://github.com/donbeave) PR
+* 2016-11-22 **V7.8.0.2** : event environment support
+* 2016-10-29 **V7.8.0.1** : minor bug fix
 * 2016-10-19 **V7.8.0** : upgrade Raven java lib to 7.8.0
 * 2016-10-10 **V7.7.1** : upgrade Raven java lib to 7.7.1
 * 2016-09-27 **V7.7.0.1** : bug fix
 * 2016-09-26 **V7.7.0** : upgrade Raven java lib to 7.7.0, release support added to events
-* 2016-08-22 **V7.6.0** : upgrade Raven java lib to 7.6.0, Spring Security integration improvements, thanks to [donbeave](https://github.com/donbeave) PR
-* 2016-07-22 **V7.4.0** : upgrade Raven java lib to 7.4.0, better logging and support for Spring Security Core , thanks to [donbeave](https://github.com/donbeave) PR
+* 2016-08-22 **V7.6.0** : upgrade Raven java lib to 7.6.0, Spring Security integration improvements
+* 2016-07-22 **V7.4.0** : upgrade Raven java lib to 7.4.0, Spring Security Core support
 * 2016-06-22 **V7.3.0** : upgrade Raven java lib to 7.3.0
 * 2016-05-03 **V7.2.1** : upgrade Raven java lib to 7.2.1
 * 2016-04-12 **V7.1.0.1** : minor update
-* 2016-04-06 **V7.1.0** : upgrade Raven java lib to 7.1.0, thanks to [donbeave](https://github.com/donbeave) PR (WARNING: Raven package has been renamed from `net.kencochrane.raven` to `com.getsentry.raven`)
+* 2016-04-06 **V7.1.0** : upgrade Raven java lib to 7.1.0
 * 2015-08-31 **V6.0.0** : initial release for Grails 3.x
-
-## Migration from 1.x to 7.x
-
-The v17.14.0 release includes a major upgrade from Sentry Java SDK 1.7.25 to 7.14.0. Key changes:
-
-- **API Changes**: The old `SentryClient` bean is replaced with static `Sentry` API
-- **Event Building**: Use `Sentry.captureMessage()` and `Sentry.captureException()` instead of `sentryClient.sendMessage()`
-- **Context Management**: Use `Sentry.configureScope()` for setting tags, extras, and user information
-- **Compatibility**: Tested with Grails 3.3.8 and Spring Boot 1.5.x
 
 ## Bugs
 
-To report any bug, please use the project [Issues](https://github.com/agorapulse/grails-raven/issues/new) section on GitHub.
+To report any bug, please use the project [Issues](https://github.com/agorapulse/grails-sentry/issues/new) section on GitHub.
 
 ## Contributing
 
-Please contribute using [Github Flow](https://guides.github.com/introduction/flow/). Create a branch, add commits, and [open a pull request](https://github.com/agorapulse/grails-raven/compare/).
+Please contribute using [Github Flow](https://guides.github.com/introduction/flow/). Create a branch, add commits, and [open a pull request](https://github.com/agorapulse/grails-sentry/compare/).
 
 ## License
 
 Copyright © 2016 Alan Rafael Fachini, authors, and contributors. All rights reserved.
 
 This project is licensed under the Apache License, Version 2.0 - see the [LICENSE](LICENSE) file for details.
-
-## Maintained by
-
-[![Agorapulse](https://cloud.githubusercontent.com/assets/139017/17053391/4a44735a-5034-11e6-8e72-9f4b7139d7e0.png)](https://www.agorapulse.com/) **&** [![Scentbird](https://cloud.githubusercontent.com/assets/139017/17053392/4a4f343e-5034-11e6-95c9-f6371f7848f1.png)](https://www.scentbird.com/)

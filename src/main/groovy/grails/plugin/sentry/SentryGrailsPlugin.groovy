@@ -19,17 +19,28 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.helpers.MDCInsertingServletFilter
 import grails.plugins.Plugin
+import grails.util.Environment
+import grails.util.Metadata
 import groovy.transform.CompileStatic
 import groovy.transform.TypeCheckingMode
 import groovy.util.logging.Slf4j
+import io.sentry.EventProcessor
+import io.sentry.Hint
 import io.sentry.Sentry
+import io.sentry.SentryEvent
 import io.sentry.SentryOptions
+import io.sentry.protocol.SentryException
+import io.sentry.protocol.SentryStackFrame
+import org.codehaus.groovy.runtime.StackTraceUtils
 import org.slf4j.LoggerFactory
 import org.springframework.boot.web.servlet.FilterRegistrationBean
 
 @CompileStatic
 @Slf4j
 class SentryGrailsPlugin extends Plugin {
+
+    static final String TAG_GRAILS_APP_NAME = 'grails_app_name'
+    static final String TAG_GRAILS_VERSION = 'grails_version'
 
     // the version or versions of Grails the plugin is designed for
     def grailsVersion = '3.0.0 > *'
@@ -58,33 +69,64 @@ class SentryGrailsPlugin extends Plugin {
 
             if (pluginConfig?.dsn) {
                 log.info 'Sentry config found, initializing Sentry SDK and corresponding Logback appender'
-                
-                // Initialize Sentry with options
-                Sentry.init { SentryOptions options ->
-                    options.dsn = pluginConfig.dsn.toString()
-                    
-                    if (pluginConfig.environment) {
-                        options.environment = pluginConfig.environment
-                    }
-                    
-                    if (pluginConfig.serverName) {
-                        options.serverName = pluginConfig.serverName
-                    }
-                    
-                    String release = grailsApplication.metadata['info.app.version']
-                    if (release) {
-                        options.release = release
-                    }
-                    
-                    // Set tags
-                    if (pluginConfig.tags) {
-                        pluginConfig.tags.each { key, value ->
-                            options.setTag(key, value)
+
+                // Guard against re-initialization on context reloads (e.g., during tests)
+                if (!Sentry.isEnabled()) {
+                    Metadata appMetadata = Metadata.current
+                    boolean sanitize = pluginConfig.sanitizeStackTrace
+
+                    Sentry.init { SentryOptions options ->
+                        options.dsn = pluginConfig.dsn.toString()
+
+                        options.environment = pluginConfig.environment ?: Environment.current.name
+
+                        if (pluginConfig.serverName) {
+                            options.serverName = pluginConfig.serverName
+                        }
+
+                        String release = grailsApplication.metadata['info.app.version']
+                        if (release) {
+                            options.release = release
+                        }
+
+                        // Static tags set once at init time (thread-safe — no per-event mutation)
+                        options.setTag(TAG_GRAILS_APP_NAME, appMetadata.getApplicationName() ?: 'unknown')
+                        options.setTag(TAG_GRAILS_VERSION, appMetadata.getGrailsVersion() ?: 'unknown')
+
+                        if (pluginConfig.tags) {
+                            pluginConfig.tags.each { String key, String value ->
+                                options.setTag(key, value)
+                            }
+                        }
+
+                        // Stack trace sanitizer registered globally so it runs for every captured event
+                        if (sanitize) {
+                            options.addEventProcessor({ SentryEvent event, Hint hint ->
+                                event.exceptions?.values?.each { SentryException ex ->
+                                    List<SentryStackFrame> frames = ex.stacktrace?.frames
+                                    if (frames) {
+                                        ex.stacktrace.frames = frames.findAll { SentryStackFrame frame ->
+                                            frame.module == null || StackTraceUtils.isApplicationClass(frame.module)
+                                        }
+                                    }
+                                }
+                                event
+                            } as EventProcessor)
                         }
                     }
                 }
-                
-                sentryAppender(GrailsLogbackSentryAppender, pluginConfig, grailsApplication.metadata['info.app.version'])
+
+                if (pluginConfig.logHttpRequest) {
+                    log.warn "grails.plugin.sentry.logHttpRequest=true is not supported with sentry-logback alone in SDK v7. " +
+                            "Add the sentry-spring dependency for HTTP request context capture."
+                }
+
+                if (pluginConfig.logClassName) {
+                    log.debug "grails.plugin.sentry.logClassName is effectively always enabled in SDK v7 — " +
+                            "the logger name (class name) is captured automatically by SentryAppender."
+                }
+
+                sentryAppender(GrailsLogbackSentryAppender, pluginConfig)
 
                 if (pluginConfig.springSecurityUser) {
                     springSecurityUserEventBuilderHelper(SpringSecurityUserEventBuilderHelper, pluginConfig) {
@@ -112,10 +154,18 @@ class SentryGrailsPlugin extends Plugin {
             return
         }
 
+        // DSN may be absent even when active=true (misconfiguration); appender bean won't exist
+        if (!pluginConfig.dsn) {
+            return
+        }
+
         if (pluginConfig.springSecurityUser) {
-            def springSecurityUserEventBuilderHelper = applicationContext.getBean(SpringSecurityUserEventBuilderHelper)
+            SpringSecurityUserEventBuilderHelper helper =
+                applicationContext.getBean(SpringSecurityUserEventBuilderHelper)
+            // configureScope targets the global scope; without sentry-spring request isolation
+            // this processor correctly runs for every event across all threads
             Sentry.configureScope { scope ->
-                scope.addEventProcessor(springSecurityUserEventBuilderHelper)
+                scope.addEventProcessor(helper)
             }
         }
 

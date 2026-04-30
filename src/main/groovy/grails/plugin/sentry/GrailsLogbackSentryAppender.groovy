@@ -16,29 +16,20 @@
 package grails.plugin.sentry
 
 import ch.qos.logback.classic.spi.ILoggingEvent
-import ch.qos.logback.classic.spi.IThrowableProxy
 import ch.qos.logback.core.status.ErrorStatus
 import ch.qos.logback.core.status.Status
-import grails.util.Environment
-import grails.util.Metadata
 import groovy.transform.CompileStatic
 import io.sentry.Sentry
 import io.sentry.logback.SentryAppender
-import org.codehaus.groovy.runtime.StackTraceUtils
 
 @CompileStatic
 class GrailsLogbackSentryAppender extends SentryAppender {
 
-    private static final String TAG_GRAILS_APP_NAME = 'grails_app_name'
-    private static final String TAG_GRAILS_VERSION = 'grails_version'
-
     SentryConfig config
-    String release
 
-    GrailsLogbackSentryAppender(SentryConfig config, String release = '') {
+    GrailsLogbackSentryAppender(SentryConfig config) {
         super()
         this.config = config
-        this.release = release
     }
 
     @Override
@@ -48,34 +39,14 @@ class GrailsLogbackSentryAppender extends SentryAppender {
         }
 
         if ((config.levels ?: SentryConfig.defaultLevels).contains(event.level)) {
-            // Enrich event with Grails-specific context before sending
-            Sentry.configureScope { scope ->
-                // Add Grails metadata as tags
-                Metadata metadata = Metadata.current
-                scope.setTag(TAG_GRAILS_APP_NAME, metadata.getApplicationName())
-                scope.setTag(TAG_GRAILS_VERSION, metadata.getGrailsVersion())
-                
-                // Add custom tags
-                if (config.tags) {
-                    config.tags.each { String key, String value ->
-                        scope.setTag(key, value)
-                    }
+            // withScope creates an isolated thread-local scope for this event only,
+            // preventing concurrent log events from clobbering each other's extras
+            Sentry.withScope { scope ->
+                event.loggerContextVO.propertyMap.each { String k, String v ->
+                    scope.setExtra(k, v)
                 }
-                
-                // Set environment
-                if (config.environment) {
-                    scope.setTag('environment', config.environment)
-                } else {
-                    scope.setTag('environment', Environment.current.name)
-                }
-                
-                // Add logger context as extras
-                for (Map.Entry<String, String> contextEntry : event.loggerContextVO.propertyMap.entrySet()) {
-                    scope.setExtra(contextEntry.key, contextEntry.value)
-                }
+                super.append(event)
             }
-            
-            super.append(event)
         }
     }
 
@@ -86,18 +57,6 @@ class GrailsLogbackSentryAppender extends SentryAppender {
             status.throwable?.printStackTrace()
         }
         super.addStatus(status)
-    }
-
-    @Override
-    protected StackTraceElement[] toStackTraceElements(IThrowableProxy throwableProxy) {
-        StackTraceElement[] stackTraceElements = super.toStackTraceElements(throwableProxy)
-        if (!config.sanitizeStackTrace) {
-            return stackTraceElements
-        }
-
-        Exception stackTraceWrapper = new Exception()
-        stackTraceWrapper.stackTrace = stackTraceElements
-        StackTraceUtils.deepSanitize(stackTraceWrapper).stackTrace
     }
 
 }
