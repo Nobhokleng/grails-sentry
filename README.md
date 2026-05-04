@@ -93,6 +93,35 @@ grails:
 
 You can also configure connection and protocol options in the DSN query string. See the [Sentry Java SDK documentation](https://docs.sentry.io/platforms/java/) for details.
 
+## SDK v7 tracing and breadcrumbs
+
+These features are opt-in and disabled by default:
+
+```yml
+grails:
+    plugin:
+        sentry:
+            # Enable Sentry performance tracing (creates a transaction per HTTP request)
+            tracingEnabled: false
+            # Fraction of transactions to sample (1.0 = 100%)
+            tracesSampleRate: 1.0
+            # Create child spans around Grails service methods when a transaction is active
+            traceServices: true
+            # Record qualifying log events as Sentry breadcrumbs
+            breadcrumbsEnabled: false
+            # Minimum log level for breadcrumb capture
+            breadcrumbLevel: INFO
+            # Read inbound sentry-trace/baggage headers to continue a distributed trace
+            distributedTracingEnabled: false
+```
+
+### How it works
+
+- **`tracingEnabled`** — registers a Spring MVC `HandlerInterceptor` that starts a Sentry transaction on every request and finishes it with the HTTP response status after the controller action completes. The transaction name is `controller/action`.
+- **`traceServices`** — registers an AspectJ `@Aspect` bean that wraps public methods on `@Transactional` Grails services in child spans. Spans only fire when a parent transaction is active on the current thread. Requires `tracingEnabled: true` (or any other mechanism to start a transaction first).
+- **`breadcrumbsEnabled`** — attaches a Logback appender that converts log events at or above `breadcrumbLevel` into Sentry breadcrumbs. Events that will themselves be captured as full Sentry errors (at a level in `levels`) are not also added as breadcrumbs.
+- **`distributedTracingEnabled`** — registers a servlet `Filter` that reads the `sentry-trace` and `baggage` headers from inbound requests and stores the resolved `TransactionContext` as a request attribute. When `tracingEnabled` is also on, the interceptor picks up this context so the transaction is linked to the upstream trace.
+
 # Usage
 
 ## Logback Appender

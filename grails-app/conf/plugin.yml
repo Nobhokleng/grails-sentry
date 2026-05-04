@@ -7,6 +7,12 @@ grails:
             logClassName: ${SENTRY_LOG_CLASS_NAME:true}
             logHttpRequest: ${SENTRY_LOG_HTTP_REQUEST:true}
             disableMDCInsertingServletFilter: ${SENTRY_DISABLE_MDC:false}
+            tracingEnabled: ${SENTRY_TRACING_ENABLED:false}
+            tracesSampleRate: ${SENTRY_TRACES_SAMPLE_RATE:1.0}
+            traceServices: ${SENTRY_TRACE_SERVICES:true}
+            breadcrumbsEnabled: ${SENTRY_BREADCRUMBS_ENABLED:false}
+            breadcrumbLevel: ${SENTRY_BREADCRUMB_LEVEL:INFO}
+            distributedTracingEnabled: ${SENTRY_DISTRIBUTED_TRACING_ENABLED:false}
             springSecurityUser: ${SENTRY_SPRING_SECURITY_ENABLED:false}
             springSecurityUserProperties:
                 email: username

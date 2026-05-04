@@ -47,6 +47,8 @@ dependencies {
     compile 'org.springframework.boot:spring-boot-autoconfigure'
     compile 'org.grails:grails-core'
     compile 'org.springframework.boot:spring-boot-starter-actuator'
+    provided 'org.springframework:spring-aop'
+    provided 'org.aspectj:aspectjweaver'
     compile 'org.springframework.boot:spring-boot-starter-tomcat'
     compile 'org.grails:grails-dependencies'
     compile 'org.grails:grails-web-boot'

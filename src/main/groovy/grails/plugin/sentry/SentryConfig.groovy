@@ -95,6 +95,26 @@ class SentryConfig {
             sanitizeStackTrace = true
         }
 
+        tracingEnabled = asBooleanValue(config.tracingEnabled, tracingEnabled)
+
+        String rateStr = config.tracesSampleRate?.toString()?.trim()
+        if (rateStr) {
+            try {
+                tracesSampleRate = Double.parseDouble(rateStr)
+            } catch (NumberFormatException ignored) {
+                // retain default on misconfigured value
+            }
+        }
+
+        traceServices = asBooleanValue(config.traceServices, traceServices)
+        breadcrumbsEnabled = asBooleanValue(config.breadcrumbsEnabled, breadcrumbsEnabled)
+
+        if (config.breadcrumbLevel) {
+            breadcrumbLevel = config.breadcrumbLevel.toString().toUpperCase()
+        }
+
+        distributedTracingEnabled = asBooleanValue(config.distributedTracingEnabled, distributedTracingEnabled)
+
         if (config.springSecurityUserProperties && config.springSecurityUserProperties instanceof Map) {
             springSecurityUserProperties = new SpringSecurityUserProperties(
                     id: (config.springSecurityUserProperties as Map).id as String ?: null,
@@ -103,6 +123,13 @@ class SentryConfig {
                     data: (config.springSecurityUserProperties as Map).data as List ?: null
             )
         }
+    }
+
+    private static boolean asBooleanValue(Object value, boolean defaultValue = false) {
+        if (value == null) {
+            return defaultValue
+        }
+        value.toString().equalsIgnoreCase('true')
     }
 
     boolean active = false
@@ -117,9 +144,19 @@ class SentryConfig {
     boolean disableMDCInsertingServletFilter = false
     boolean springSecurityUser = false
     boolean sanitizeStackTrace = false
+    boolean tracingEnabled = false
+    double tracesSampleRate = 1.0d
+    boolean traceServices = true
+    boolean breadcrumbsEnabled = false
+    String breadcrumbLevel = 'INFO'
+    boolean distributedTracingEnabled = false
     // TODO
     // priorities
     // subsystems
+
+    boolean getServiceTracingActive() {
+        tracingEnabled && traceServices
+    }
 
     SpringSecurityUserProperties springSecurityUserProperties
 

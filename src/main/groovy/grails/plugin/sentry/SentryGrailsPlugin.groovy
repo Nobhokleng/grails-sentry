@@ -33,7 +33,9 @@ import io.sentry.protocol.SentryException
 import io.sentry.protocol.SentryStackFrame
 import org.codehaus.groovy.runtime.StackTraceUtils
 import org.slf4j.LoggerFactory
+import org.springframework.aop.aspectj.annotation.AnnotationAwareAspectJAutoProxyCreator
 import org.springframework.boot.web.servlet.FilterRegistrationBean
+import org.springframework.core.Ordered
 
 @CompileStatic
 @Slf4j
@@ -77,6 +79,10 @@ class SentryGrailsPlugin extends Plugin {
 
                     Sentry.init { SentryOptions options ->
                         options.dsn = pluginConfig.dsn.toString()
+
+                        if (pluginConfig.tracingEnabled) {
+                            options.tracesSampleRate = pluginConfig.tracesSampleRate
+                        }
 
                         options.environment = pluginConfig.environment ?: Environment.current.name
 
@@ -128,6 +134,32 @@ class SentryGrailsPlugin extends Plugin {
 
                 sentryAppender(GrailsLogbackSentryAppender, pluginConfig)
 
+                if (pluginConfig.tracingEnabled) {
+                    sentryTracingInterceptor(SentryTracingInterceptor, pluginConfig)
+                    sentryMvcConfigurer(SentryMvcConfigurer) {
+                        tracingInterceptor = ref('sentryTracingInterceptor')
+                    }
+                }
+
+                if (pluginConfig.serviceTracingActive) {
+                    sentryAspectAutoProxyCreator(AnnotationAwareAspectJAutoProxyCreator) {
+                        proxyTargetClass = true
+                    }
+                    sentryServiceTracingAspect(SentryServiceTracingAspect)
+                }
+
+                if (pluginConfig.breadcrumbsEnabled) {
+                    sentryBreadcrumbAppender(SentryBreadcrumbAppender, pluginConfig)
+                }
+
+                if (pluginConfig.distributedTracingEnabled) {
+                    sentryTracingFilter(FilterRegistrationBean) {
+                        filter = bean(SentryTracingFilter)
+                        urlPatterns = ['/*']
+                        order = Ordered.HIGHEST_PRECEDENCE + 10
+                    }
+                }
+
                 if (pluginConfig.springSecurityUser) {
                     springSecurityUserEventBuilderHelper(SpringSecurityUserEventBuilderHelper, pluginConfig) {
                         springSecurityService = ref('springSecurityService')
@@ -169,18 +201,32 @@ class SentryGrailsPlugin extends Plugin {
             }
         }
 
+        LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory()
+
         GrailsLogbackSentryAppender appender = applicationContext.getBean(GrailsLogbackSentryAppender)
         if (appender) {
-            LoggerContext loggerContext = (LoggerContext) LoggerFactory.getILoggerFactory()
-            if (pluginConfig.loggers) {
-                pluginConfig.loggers.each { String logger ->
-                    loggerContext.getLogger(logger).addAppender(appender)
-                }
-            } else {
-                loggerContext.getLogger(Logger.ROOT_LOGGER_NAME).addAppender(appender)
+            attachAppender(loggerContext, pluginConfig, appender)
+        }
+
+        if (pluginConfig.breadcrumbsEnabled) {
+            SentryBreadcrumbAppender breadcrumbAppender = applicationContext.getBean(SentryBreadcrumbAppender)
+            if (breadcrumbAppender) {
+                attachAppender(loggerContext, pluginConfig, breadcrumbAppender)
             }
-            appender.setContext(loggerContext)
-            appender.start()
+        }
+    }
+
+    @CompileStatic(TypeCheckingMode.SKIP)
+    private static void attachAppender(LoggerContext loggerContext, SentryConfig pluginConfig, def appender) {
+        appender.setContext(loggerContext)
+        appender.start()
+
+        if (pluginConfig.loggers) {
+            pluginConfig.loggers.each { String logger ->
+                loggerContext.getLogger(logger).addAppender(appender)
+            }
+        } else {
+            loggerContext.getLogger(Logger.ROOT_LOGGER_NAME).addAppender(appender)
         }
     }
 
