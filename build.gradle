@@ -24,10 +24,6 @@ buildscript {
     }
 }
 
-plugins {
-    id 'com.jfrog.artifactory' version '4.7.5'
-}
-
 version "1${sentryLogbackVersion}"
 group 'org.grails.plugins'
 
@@ -42,13 +38,25 @@ repositories {
     maven { url 'https://repo.grails.org/grails/core' }
 }
 
+publishing {
+    repositories {
+        maven {
+            url = version.endsWith('SNAPSHOT') ? nexusSnapshotsRepoUrl : nexusReleasesRepoUrl
+            credentials {
+                username System.getenv("MAVEN_USERNAME")
+                password System.getenv("MAVEN_PASSWORD")
+            }
+        }
+    }
+}
+
 dependencies {
     compile 'org.springframework.boot:spring-boot-starter-logging'
     compile 'org.springframework.boot:spring-boot-autoconfigure'
     compile 'org.grails:grails-core'
     compile 'org.springframework.boot:spring-boot-starter-actuator'
     provided 'org.springframework:spring-aop'
-    compile 'org.aspectj:aspectjweaver'
+    provided 'org.aspectj:aspectjweaver'
     compile 'org.springframework.boot:spring-boot-starter-tomcat'
     compile 'org.grails:grails-dependencies'
     compile 'org.grails:grails-web-boot'
@@ -76,49 +84,6 @@ grailsPublish {
     developers = [benorama: 'Benoit Hediard', musketyr: 'Vladimir Orany', donbeave: 'Alexey Zhokhov']
     portalUser = ''
     portalPassword = ''
-}
-
-if (System.getenv('ARTIFACTORY_CONTEXT_URL')) {
-    publishing {
-        publications {
-            mavenJava(MavenPublication) {
-                pom.withXml {
-                    def pomNode = asNode()
-                    pomNode.dependencyManagement.replaceNode {}
-
-                    // simply remove dependencies without a version
-                    // version-less dependencies are handled with dependencyManagement
-                    // see https://github.com/spring-gradle-plugins/dependency-management-plugin/issues/8 for more complete solutions
-                    pomNode.dependencies.dependency.findAll {
-                        it.version.text().isEmpty()
-                    }.each {
-                        it.replaceNode {}
-                    }
-                }
-                from components.java
-                def descriptor =
-                        artifacts = ["build/libs/${rootProject.name}-${version}.jar", sourcesJar]
-
-            }
-        }
-    }
-    artifactory {
-        contextUrl = System.getenv('ARTIFACTORY_CONTEXT_URL')
-
-        publish {
-            defaults {
-                publications('mavenJava')
-                publishArtifacts = true
-                publishPom = true
-
-            }
-            repository {
-                repoKey = "${version.contains('SNAPSHOT') ? (System.getenv('ARTIFACTORY_SNAPSHOT_REPO_KEY') ?: 'plugins-snapshot-local') : (System.getenv('ARTIFACTORY_RELEASE_REPO_KEY') ?: 'plugins-release-local')}"
-                username = System.getenv('ARTIFACTORY_USERNAME') ?: 'admin'
-                password = System.getenv('ARTIFACTORY_PASSWORD') ?: 'password'
-            }
-        }
-    }
 }
 
 wrapper {
