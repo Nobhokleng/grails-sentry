@@ -2,6 +2,7 @@ package grails.plugin.sentry
 
 import ch.qos.logback.classic.Logger
 import com.stehno.ersatz.ErsatzServer
+import grails.core.GrailsApplication
 import grails.testing.mixin.integration.Integration
 import io.sentry.Sentry
 import io.sentry.SentryOptions
@@ -12,6 +13,25 @@ import spock.lang.Specification
 class SanityIntegrationSpec extends Specification {
 
     GrailsLogbackSentryAppender sentryAppender
+    GrailsApplication grailsApplication
+
+    def "new SDK v7 features are disabled by default"() {
+        given:
+            def ctx = grailsApplication.mainContext
+
+        when:
+            SentryConfig config = new SentryConfig(grailsApplication.config.grails.plugin.sentry)
+
+        then:
+            !config.tracingEnabled
+            !config.breadcrumbsEnabled
+            !config.distributedTracingEnabled
+            !ctx.containsBean('sentryTracingInterceptor')
+            !ctx.containsBean('sentryMvcConfigurer')
+            !ctx.containsBean('sentryServiceTracingAspect')
+            !ctx.containsBean('sentryBreadcrumbAppender')
+            !ctx.containsBean('sentryTracingFilter')
+    }
 
     def "everything works"() {
         expect: "sentry appender bean is registered"
