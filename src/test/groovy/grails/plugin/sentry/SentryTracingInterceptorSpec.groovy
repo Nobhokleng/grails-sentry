@@ -1,5 +1,6 @@
 package grails.plugin.sentry
 
+import io.sentry.Breadcrumb
 import io.sentry.ITransaction
 import io.sentry.Sentry
 import io.sentry.SentryOptions
@@ -94,6 +95,23 @@ class SentryTracingInterceptorSpec extends Specification {
             RecordingTransport.transactions(options)*.transaction == ['upstream/request']
     }
 
+    def "preHandle clears breadcrumbs accumulated before the request"() {
+        given:
+            SentryTracingInterceptor interceptor = new SentryTracingInterceptor(new SentryConfig([
+                    dsn: 'https://foo:bar@example.com/123',
+                    tracingEnabled: true
+            ]))
+            Sentry.addBreadcrumb(new Breadcrumb('startup log from before the request'))
+            MockHttpServletRequest request = new MockHttpServletRequest()
+            MockHttpServletResponse response = new MockHttpServletResponse()
+
+        when:
+            interceptor.preHandle(request, response, null)
+
+        then:
+            Sentry.currentScopes.scope.breadcrumbs.empty
+    }
+
     def "disabled tracing leaves request untouched"() {
         given:
             SentryTracingInterceptor interceptor = new SentryTracingInterceptor(new SentryConfig([
@@ -106,5 +124,21 @@ class SentryTracingInterceptorSpec extends Specification {
         expect:
             interceptor.preHandle(request, response, null)
             request.getAttribute(SentryTracingInterceptor.TRANSACTION_ATTRIBUTE) == null
+    }
+
+    def "OPTIONS request tracing can be disabled"() {
+        given:
+            SentryTracingInterceptor interceptor = new SentryTracingInterceptor(new SentryConfig([
+                    dsn: 'https://foo:bar@example.com/123',
+                    tracingEnabled: true,
+                    traceOptionsRequests: false
+            ]))
+            MockHttpServletRequest request = new MockHttpServletRequest('OPTIONS', '/books')
+            MockHttpServletResponse response = new MockHttpServletResponse()
+
+        expect:
+            interceptor.preHandle(request, response, null)
+            request.getAttribute(SentryTracingInterceptor.TRANSACTION_ATTRIBUTE) == null
+            Sentry.getSpan() == null
     }
 }

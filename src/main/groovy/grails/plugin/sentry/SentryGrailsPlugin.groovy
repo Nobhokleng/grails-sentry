@@ -28,7 +28,9 @@ import io.sentry.EventProcessor
 import io.sentry.Hint
 import io.sentry.Sentry
 import io.sentry.SentryEvent
+import io.sentry.SentryLevel
 import io.sentry.SentryOptions
+import io.sentry.ScopeType
 import io.sentry.protocol.SentryException
 import io.sentry.protocol.SentryStackFrame
 import org.codehaus.groovy.runtime.StackTraceUtils
@@ -73,16 +75,72 @@ class SentryGrailsPlugin extends Plugin {
                 log.info 'Sentry config found, initializing Sentry SDK and corresponding Logback appender'
 
                 // Guard against re-initialization on context reloads (e.g., during tests)
-                if (!Sentry.isEnabled()) {
+                if (pluginConfig.forceInit || !Sentry.isEnabled()) {
                     Metadata appMetadata = Metadata.current
                     boolean sanitize = pluginConfig.sanitizeStackTrace
 
                     Sentry.init { SentryOptions options ->
                         options.dsn = pluginConfig.dsn.toString()
+                        options.debug = pluginConfig.debug
+                        options.diagnosticLevel = sentryLevel(pluginConfig.diagnosticLevel)
+                        options.sendDefaultPii = pluginConfig.sendDefaultPii
+                        options.attachThreads = pluginConfig.attachThreads
+                        options.sampleRate = pluginConfig.sampleRate
+                        options.forceInit = pluginConfig.forceInit
+
+                        if (pluginConfig.dist) {
+                            options.dist = pluginConfig.dist
+                        }
+
+                        if (pluginConfig.maxRequestBodySize) {
+                            options.maxRequestBodySize = requestSize(pluginConfig.maxRequestBodySize)
+                        }
 
                         if (pluginConfig.tracingEnabled) {
                             options.tracesSampleRate = pluginConfig.tracesSampleRate
                         }
+
+                        if (pluginConfig.profilesSampleRate != null) {
+                            options.profilesSampleRate = pluginConfig.profilesSampleRate
+                        }
+
+                        if (pluginConfig.tracePropagationTargets != null && !pluginConfig.tracePropagationTargets.empty) {
+                            options.tracePropagationTargets = pluginConfig.tracePropagationTargets
+                        }
+
+                        if (pluginConfig.traceOptionsRequests != null) {
+                            options.traceOptionsRequests = pluginConfig.traceOptionsRequests
+                        }
+
+                        if (pluginConfig.enableBackpressureHandling != null) {
+                            options.enableBackpressureHandling = pluginConfig.enableBackpressureHandling
+                        }
+
+                        if (pluginConfig.strictTraceContinuation) {
+                            options.strictTraceContinuation = true
+                        }
+
+                        if (pluginConfig.orgId) {
+                            options.orgId = pluginConfig.orgId
+                        }
+
+                        pluginConfig.contextTags.each { String key ->
+                            options.addContextTag(key)
+                        }
+
+                        if (pluginConfig.ignoredErrors) {
+                            options.ignoredErrors = pluginConfig.ignoredErrors
+                        }
+
+                        if (pluginConfig.ignoredTransactions) {
+                            options.ignoredTransactions = pluginConfig.ignoredTransactions
+                        }
+
+                        if (pluginConfig.ignoredSpanOrigins) {
+                            options.ignoredSpanOrigins = pluginConfig.ignoredSpanOrigins
+                        }
+
+                        options.logs.enabled = pluginConfig.sentryLogsEnabled
 
                         options.environment = pluginConfig.environment ?: Environment.current.name
 
@@ -123,12 +181,12 @@ class SentryGrailsPlugin extends Plugin {
                 }
 
                 if (pluginConfig.logHttpRequest) {
-                    log.warn "grails.plugin.sentry.logHttpRequest=true is not supported with sentry-logback alone in SDK v7. " +
+                    log.warn "grails.plugin.sentry.logHttpRequest=true is not supported with sentry-logback alone in the Sentry Java SDK. " +
                             "Add the sentry-spring dependency for HTTP request context capture."
                 }
 
                 if (pluginConfig.logClassName) {
-                    log.debug "grails.plugin.sentry.logClassName is effectively always enabled in SDK v7 — " +
+                    log.debug "grails.plugin.sentry.logClassName is effectively always enabled in the Sentry Java SDK; " +
                             "the logger name (class name) is captured automatically by SentryAppender."
                 }
 
@@ -194,9 +252,8 @@ class SentryGrailsPlugin extends Plugin {
         if (pluginConfig.springSecurityUser) {
             SpringSecurityUserEventBuilderHelper helper =
                 applicationContext.getBean(SpringSecurityUserEventBuilderHelper)
-            // configureScope targets the global scope; without sentry-spring request isolation
-            // this processor correctly runs for every event across all threads
-            Sentry.configureScope { scope ->
+            // Without sentry-spring request isolation, this global processor runs for every event.
+            Sentry.configureScope(ScopeType.GLOBAL) { scope ->
                 scope.addEventProcessor(helper)
             }
         }
@@ -235,6 +292,26 @@ class SentryGrailsPlugin extends Plugin {
         def pluginConfig = grailsApplication.config.grails?.plugin?.sentry
 
         new SentryConfig(pluginConfig)
+    }
+
+    private static SentryLevel sentryLevel(String value) {
+        try {
+            return SentryLevel.valueOf(value?.toUpperCase() ?: 'WARNING')
+        } catch (IllegalArgumentException ignored) {
+            return SentryLevel.WARNING
+        }
+    }
+
+    private static SentryOptions.RequestSize requestSize(String value) {
+        String normalized = value?.toUpperCase()
+        if (normalized == 'NEVER') {
+            normalized = 'NONE'
+        }
+        try {
+            return SentryOptions.RequestSize.valueOf(normalized ?: 'NONE')
+        } catch (IllegalArgumentException ignored) {
+            return SentryOptions.RequestSize.NONE
+        }
     }
 
 }

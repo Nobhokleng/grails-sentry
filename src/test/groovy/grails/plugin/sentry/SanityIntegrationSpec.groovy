@@ -15,7 +15,7 @@ class SanityIntegrationSpec extends Specification {
     GrailsLogbackSentryAppender sentryAppender
     GrailsApplication grailsApplication
 
-    def "new SDK v7 features are disabled by default"() {
+    def "Sentry features are disabled by default"() {
         given:
             def ctx = grailsApplication.mainContext
 

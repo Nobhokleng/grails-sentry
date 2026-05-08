@@ -27,6 +27,14 @@ class SentryTracingInterceptor implements HandlerInterceptor {
             return true
         }
 
+        if (config.traceOptionsRequests == false && request.method?.equalsIgnoreCase('OPTIONS')) {
+            return true
+        }
+
+        // Clear accumulated breadcrumbs from previous requests / startup so only
+        // breadcrumbs logged during this request are attached to any captured event.
+        Sentry.configureScope { scope -> scope.clearBreadcrumbs() }
+
         TransactionOptions txOptions = new TransactionOptions()
         txOptions.setBindToScope(true)
 
