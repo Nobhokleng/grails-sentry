@@ -41,9 +41,7 @@ repositories {
 publishing {
     repositories {
         maven {
-            url = version.endsWith('SNAPSHOT')
-                ? System.getenv("NEXUS_SNAPSHOTS_REPO_URL")
-                : System.getenv("NEXUS_RELEASES_REPO_URL")
+            url = version.endsWith('SNAPSHOT') ? System.getenv("NEXUS_SNAPSHOTS_REPO_URL") : System.getenv("NEXUS_RELEASES_REPO_URL")
             credentials {
                 username System.getenv("MAVEN_USERNAME")
                 password System.getenv("MAVEN_PASSWORD")
