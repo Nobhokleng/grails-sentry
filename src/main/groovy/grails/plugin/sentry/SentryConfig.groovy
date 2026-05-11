@@ -23,6 +23,7 @@ import groovy.transform.CompileStatic
         disableMDCInsertingServletFilter: true
         springSecurityUser: true
         sanitizeStackTrace: true
+        traceOptionsRequests: false
         springSecurityUserProperties:
             id: 'id'
             email: 'emailAddress'
@@ -114,6 +115,7 @@ class SentryConfig {
         }
 
         distributedTracingEnabled = asBooleanValue(config.distributedTracingEnabled, distributedTracingEnabled)
+        traceOptionsRequests = asNullableBooleanValue(config.traceOptionsRequests, traceOptionsRequests)
 
         if (config.springSecurityUserProperties && config.springSecurityUserProperties instanceof Map) {
             springSecurityUserProperties = new SpringSecurityUserProperties(
@@ -127,6 +129,13 @@ class SentryConfig {
 
     private static boolean asBooleanValue(Object value, boolean defaultValue = false) {
         if (value == null) {
+            return defaultValue
+        }
+        value.toString().equalsIgnoreCase('true')
+    }
+
+    private static Boolean asNullableBooleanValue(Object value, Boolean defaultValue = null) {
+        if (value == null || value.toString().trim() == '') {
             return defaultValue
         }
         value.toString().equalsIgnoreCase('true')
@@ -150,6 +159,7 @@ class SentryConfig {
     boolean breadcrumbsEnabled = false
     String breadcrumbLevel = 'INFO'
     boolean distributedTracingEnabled = false
+    Boolean traceOptionsRequests = false
     // TODO
     // priorities
     // subsystems
