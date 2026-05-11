@@ -12,7 +12,7 @@ It uses the official [Sentry Java SDK](https://github.com/getsentry/sentry-java)
 
 | Plugin | Sentry Java SDK | Grails | Java |
 |--------|----------------|--------|------|
-| 17.14.0 | 7.14.0 | 3.3.8+ | 8+ |
+| 18.41.0 | 8.41.0 | 3.3.8+ | 8+ |
 
 # Installation
 
@@ -20,7 +20,7 @@ Declare the plugin dependency in _build.gradle_:
 
 ```groovy
 dependencies {
-    compile("org.grails.plugins:sentry:17.14.0")
+    compile("org.grails.plugins:sentry:18.41.0")
 }
 ```
 
@@ -37,7 +37,7 @@ grails:
 
 The DSN can be found in your Sentry project under _Settings → Client Keys (DSN)_.
 
-> **Note:** Sentry SDK v7 uses a DSN format with only a public key — there is no secret key component. Copy the DSN directly from the Sentry dashboard.
+> **Note:** The Sentry Java SDK uses a DSN format with only a public key — there is no secret key component. Copy the DSN directly from the Sentry dashboard.
 
 By default the plugin sends events in all environments. Disable it per-environment:
 
@@ -72,6 +72,19 @@ grails:
             tags: {tag1: val1, tag2: val2, tag3: val3}
             # Strip Groovy/Spring internal frames from stack traces
             sanitizeStackTrace: true
+            # Enable Sentry SDK diagnostic output
+            debug: false
+            diagnosticLevel: WARNING
+            # Deployment/build distribution attached to events
+            dist: build-42
+            # Allow PII fields supported by the Sentry SDK/logback integration
+            sendDefaultPii: false
+            # Attach thread snapshots to events
+            attachThreads: false
+            # Maximum request body size captured by supported integrations: NONE, SMALL, MEDIUM, ALWAYS
+            maxRequestBodySize: SMALL
+            # Error event sampling rate
+            sampleRate: 1.0
             # Disable Logback MDC servlet filter (enabled by default)
             disableMDCInsertingServletFilter: true
             # Capture authenticated Spring Security user info on each event
@@ -85,15 +98,15 @@ grails:
                     - 'authorities'
 ```
 
-> **`logClassName`:** In SDK v7 the logger name (which is the class name) is always captured automatically by `SentryAppender`. This option is a no-op.
+> **`logClassName`:** The logger name (which is the class name) is captured automatically by `SentryAppender`. This option is a no-op and defaults to `false`.
 
-> **`logHttpRequest`:** HTTP request context capture requires the `sentry-spring` or `sentry-spring-boot` dependency, which is not bundled with this plugin. Enabling this option logs a warning. The Logback MDC servlet filter (enabled by default) still propagates available request attributes via MDC extras.
+> **`logHttpRequest`:** HTTP request context capture requires the `sentry-spring` or `sentry-spring-boot` dependency, which is not bundled with this plugin. This option defaults to `false`; enabling it logs a warning. The Logback MDC servlet filter (enabled by default) still propagates available request attributes via MDC extras.
 
 > **`subsystems` / `priorities`:** Not yet implemented.
 
 You can also configure connection and protocol options in the DSN query string. See the [Sentry Java SDK documentation](https://docs.sentry.io/platforms/java/) for details.
 
-## SDK v7 tracing and breadcrumbs
+## Tracing and breadcrumbs
 
 These features are opt-in and disabled by default:
 
@@ -105,22 +118,145 @@ grails:
             tracingEnabled: false
             # Fraction of transactions to sample (1.0 = 100%)
             tracesSampleRate: 1.0
+            # Fraction of sampled transactions to profile
+            profilesSampleRate: 0.25
             # Create child spans around Grails service methods when a transaction is active
             traceServices: true
+            # Disable tracing for OPTIONS requests
+            traceOptionsRequests: false
+            # Let the SDK reduce trace sampling under transport pressure
+            enableBackpressureHandling: true
+            # Require incoming baggage org ID to match this SDK org
+            strictTraceContinuation: false
+            orgId: '12345'
             # Record qualifying log events as Sentry breadcrumbs
             breadcrumbsEnabled: false
             # Minimum log level for breadcrumb capture
             breadcrumbLevel: INFO
+            # Send Logback records to Sentry's structured Logs product
+            sentryLogsEnabled: false
+            sentryLogsMinimumLevel: INFO
+            # Promote selected MDC keys to searchable Sentry log attributes
+            contextTags:
+                - request_id
+                - tenant_id
             # Read inbound sentry-trace/baggage headers to continue a distributed trace
             distributedTracingEnabled: false
+            # Drop noisy SDK-matched errors, transactions, or span origins
+            ignoredErrors:
+                - Broken pipe
+            ignoredTransactions:
+                - /health
+            ignoredSpanOrigins:
+                - grails.noisy
 ```
 
 ### How it works
 
 - **`tracingEnabled`** — registers a Spring MVC `HandlerInterceptor` that starts a Sentry transaction on every request and finishes it with the HTTP response status after the controller action completes. The transaction name is `controller/action`.
+- **`profilesSampleRate`** — passes the profiling sample rate to the SDK for sampled transactions. Profiling depends on tracing and on profiler support being available in the SDK/runtime setup.
+- **`traceOptionsRequests`** — controls whether this plugin creates request transactions for CORS/preflight `OPTIONS` requests. Defaults to `false`.
+- **`enableBackpressureHandling`** — lets the SDK reduce transaction sampling temporarily when the transport is unhealthy.
 - **`traceServices`** — registers an AspectJ `@Aspect` bean that wraps public methods on `@Transactional` Grails services in child spans. Spans only fire when a parent transaction is active on the current thread. Requires `tracingEnabled: true` (or any other mechanism to start a transaction first).
 - **`breadcrumbsEnabled`** — attaches a Logback appender that converts log events at or above `breadcrumbLevel` into Sentry breadcrumbs. Events that will themselves be captured as full Sentry errors (at a level in `levels`) are not also added as breadcrumbs.
+- **`sentryLogsEnabled`** — sends Logback records at or above `sentryLogsMinimumLevel` to Sentry's structured Logs pipeline. This is separate from error events controlled by `levels` and breadcrumbs controlled by `breadcrumbsEnabled`.
+- **`contextTags`** — tells the SDK which MDC keys should become searchable log attributes for structured logs.
 - **`distributedTracingEnabled`** — registers a servlet `Filter` that reads the `sentry-trace` and `baggage` headers from inbound requests and stores the resolved `TransactionContext` as a request attribute. When `tracingEnabled` is also on, the interceptor picks up this context so the transaction is linked to the upstream trace.
+
+## Environment recommendations
+
+Start conservative in production, and keep Sentry disabled in automated tests unless a test explicitly verifies this plugin.
+
+### Test
+
+```yml
+environments:
+    test:
+        grails:
+            plugin:
+                sentry:
+                    active: false
+```
+
+If you are testing this plugin or your Sentry wiring, point `dsn` at a fake/local endpoint and keep costly features off:
+
+```yml
+environments:
+    test:
+        grails:
+            plugin:
+                sentry:
+                    active: true
+                    dsn: http://public@example.com/123
+                    tracingEnabled: false
+                    breadcrumbsEnabled: false
+                    sentryLogsEnabled: false
+                    sendDefaultPii: false
+```
+
+Recommended test defaults:
+
+| Feature | Recommendation | Why |
+|---------|----------------|-----|
+| `active` | `false` | Avoid network calls, flaky tests, and polluted Sentry projects. |
+| `tracingEnabled` | `false` | Adds request interceptors and transaction work that most tests do not need. |
+| `traceServices` | `false` when `tracingEnabled` is true in tests | Adds AOP spans around service calls and can make tests noisier. |
+| `breadcrumbsEnabled` | `false` | Usually unnecessary in automated tests. |
+| `sentryLogsEnabled` | `false` | Can produce a high volume of log envelopes during tests. |
+| `sendDefaultPii` | `false` | Keeps test data out of Sentry. |
+| `forceInit` | `false` | Prevents repeated SDK reinitialization across test application context reloads. |
+
+### Production
+
+```yml
+environments:
+    production:
+        grails:
+            plugin:
+                sentry:
+                    active: true
+                    dsn: https://{PUBLIC_KEY}@o{ORG_ID}.ingest.sentry.io/{PROJECT_ID}
+                    levels: [ERROR, WARN]
+                    sanitizeStackTrace: true
+                    tracingEnabled: true
+                    tracesSampleRate: 0.05
+                    traceServices: true
+                    distributedTracingEnabled: true
+                    breadcrumbsEnabled: true
+                    breadcrumbLevel: INFO
+                    sentryLogsEnabled: false
+                    sendDefaultPii: false
+                    enableBackpressureHandling: true
+```
+
+Tune the sample rates for your traffic volume. A low sample rate on a busy app can still produce enough performance data.
+
+### Feature impact guide
+
+| Feature | Impact if enabled | Production guidance |
+|---------|-------------------|---------------------|
+| `levels` | Controls which Logback events become full Sentry error events. More levels means more envelopes and more cost. | Keep `ERROR, WARN` unless you have a short-term investigation need. Avoid `INFO` in production. |
+| `sanitizeStackTrace` | Small CPU cost per exception event. | Usually enable; cleaner stack traces are worth the small cost. |
+| `debug` | Emits SDK diagnostic logs. Can be noisy and may expose operational details in logs. | Keep disabled except during SDK troubleshooting. |
+| `diagnosticLevel` | Controls SDK diagnostic verbosity when `debug=true`. | Use `WARNING` or `ERROR` in production troubleshooting. |
+| `sampleRate` | Samples error events. Lower values drop some errors before sending. | Usually keep `1.0`; reduce only for very noisy applications. |
+| `tracingEnabled` | Adds request transaction creation/finish work. Sends performance transactions according to `tracesSampleRate`. | Enable with a low `tracesSampleRate` first, such as `0.01` to `0.10`. |
+| `tracesSampleRate` | Directly affects transaction volume and overhead. | Avoid `1.0` on high-traffic production apps unless you know the event volume is acceptable. |
+| `profilesSampleRate` | Adds profiling work for sampled transactions. More CPU/storage impact than tracing alone. | Start very low, such as `0.01`, or leave unset until you need profiling. |
+| `traceServices` | Adds AOP spans around public service methods when tracing is active. Can increase span count significantly. | Enable only with reasonable transaction sampling; watch span volume. |
+| `distributedTracingEnabled` | Adds a servlet filter to parse inbound trace headers. | Safe for most production apps when tracing is enabled. |
+| `traceOptionsRequests` | Captures `OPTIONS` requests as transactions when true. | Keep false unless preflight request performance matters. |
+| `enableBackpressureHandling` | Lets SDK reduce trace sampling when transport is unhealthy. | Enable in production. |
+| `breadcrumbsEnabled` | Adds log breadcrumbs to later events. Uses memory up to SDK breadcrumb limits. | Usually useful; keep `breadcrumbLevel` at `INFO` or `WARN`. |
+| `sentryLogsEnabled` | Sends structured logs to Sentry. Can create high volume and cost. | Keep disabled by default; enable for selected environments or raise `sentryLogsMinimumLevel` to `WARN`/`ERROR`. |
+| `contextTags` | Promotes selected MDC keys to searchable log attributes. High-cardinality keys can increase index/cardinality pressure. | Use stable keys such as `request_id`, `tenant_id`, or `job_name`; avoid raw user input. |
+| `sendDefaultPii` | Allows PII capture in supported SDK integrations/logback fields. | Keep false unless your privacy policy and Sentry project settings allow it. |
+| `springSecurityUser` | Adds authenticated user data through this plugin's event processor. This is separate from `sendDefaultPii`. | Enable only when the configured user fields are approved for Sentry. |
+| `attachThreads` | Attaches thread snapshots to events, increasing payload size. | Enable temporarily for deadlock/thread investigations. |
+| `maxRequestBodySize` | Captures request bodies in supported integrations; increases payload size and privacy risk. | Prefer `NONE` or `SMALL`; avoid `ALWAYS` in production. |
+| `forceInit` | Forces SDK initialization even if already initialized. Can replace/reinitialize SDK state. | Keep false in applications; use only for controlled test/plugin scenarios. |
+| `strictTraceContinuation` + `orgId` | Rejects incoming trace continuation from a different Sentry org. | Enable when accepting traffic from untrusted external clients and you know your org ID. |
+| `ignoredErrors`, `ignoredTransactions`, `ignoredSpanOrigins` | Drops matching telemetry before sending. | Use for known noise such as health checks; avoid broad patterns that hide real problems. |
 
 # Usage
 
@@ -214,10 +350,26 @@ Sentry.withScope { scope ->
 - `sanitizeStackTrace` is implemented via an `EventProcessor` registered at init time; it filters Groovy and Spring internal frames using `StackTraceUtils.isApplicationClass`.
 - Grails metadata tags and custom tags are set once in `SentryOptions` at startup (thread-safe), not on every log event.
 - The `release` field is set from `info.app.version` via `SentryOptions`.
-- `logHttpRequest` is not implemented in SDK v7 with `sentry-logback` alone.
+- `logHttpRequest` is not implemented with `sentry-logback` alone.
+
+## From v17.x (SDK 7.x) to v18.x (SDK 8.x)
+
+The plugin now uses Sentry Java SDK 8.41.0. The current plugin code already uses the v8-compatible tracing configuration (`tracesSampleRate`) and does not use removed SDK v7 options such as `enableTracing`, `traceOrigins`, `profilingEnabled`, or `shutdownTimeout`.
+
+When overriding or adding Sentry dependencies in a consuming application, keep all `io.sentry:*` artifacts on the same version. Mixing SDK versions can cause runtime linkage errors.
+
+Notable SDK v8 changes:
+
+- `enableTracing` was removed; use `tracesSampleRate`.
+- `profilingEnabled` was removed; use `profilesSampleRate`.
+- `shutdownTimeout` was removed; use `shutdownTimeoutMillis`.
+- Metrics support was removed from SDK v8.
+- `Sentry.traceHeaders()` was removed; use `Sentry.getTraceparent()`.
+- Sentry scopes were reworked into global, isolation, and current scopes.
 
 # Latest releases
 
+* 2026-05-08 **V18.41.0** : upgrade to Sentry Java SDK 8.41.0; verified Java 8 bytecode compatibility and Grails 3.3.8 test suite
 * 2026-04-30 **V17.14.0** : upgrade to Sentry Java SDK 7.14.0 with Grails 3.3.8 compatibility; migrated from `SentryClient` bean to static `Sentry` API; `sanitizeStackTrace` reimplemented via `EventProcessor`; thread-safe scope handling via `Sentry.withScope`
 * 2018-07-16 **V11.7.25** : upgrade Sentry java lib to 1.7.25 + stack trace sanitizer
 * 2018-07-16 **V11.7.24** : upgrade Sentry java lib to 1.7.24 + Grails 4 upgrade

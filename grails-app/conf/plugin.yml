@@ -4,15 +4,34 @@ grails:
             dsn: ${SENTRY_DSN:}
             active: ${SENTRY_ACTIVE:true}
             serverName: ${SENTRY_SERVER_NAME:}
-            logClassName: ${SENTRY_LOG_CLASS_NAME:true}
-            logHttpRequest: ${SENTRY_LOG_HTTP_REQUEST:true}
+            logClassName: ${SENTRY_LOG_CLASS_NAME:false}
+            logHttpRequest: ${SENTRY_LOG_HTTP_REQUEST:false}
             disableMDCInsertingServletFilter: ${SENTRY_DISABLE_MDC:false}
+            debug: ${SENTRY_DEBUG:false}
+            diagnosticLevel: ${SENTRY_DIAGNOSTIC_LEVEL:WARNING}
+            dist: ${SENTRY_DIST:}
+            sendDefaultPii: ${SENTRY_SEND_DEFAULT_PII:false}
+            attachThreads: ${SENTRY_ATTACH_THREADS:false}
+            maxRequestBodySize: ${SENTRY_MAX_REQUEST_BODY_SIZE:}
+            sampleRate: ${SENTRY_SAMPLE_RATE:1.0}
             tracingEnabled: ${SENTRY_TRACING_ENABLED:false}
             tracesSampleRate: ${SENTRY_TRACES_SAMPLE_RATE:1.0}
+            profilesSampleRate: ${SENTRY_PROFILES_SAMPLE_RATE:}
             traceServices: ${SENTRY_TRACE_SERVICES:true}
             breadcrumbsEnabled: ${SENTRY_BREADCRUMBS_ENABLED:false}
             breadcrumbLevel: ${SENTRY_BREADCRUMB_LEVEL:INFO}
+            sentryLogsEnabled: ${SENTRY_LOGS_ENABLED:false}
+            sentryLogsMinimumLevel: ${SENTRY_LOGS_MINIMUM_LEVEL:INFO}
             distributedTracingEnabled: ${SENTRY_DISTRIBUTED_TRACING_ENABLED:false}
+            traceOptionsRequests: ${SENTRY_TRACE_OPTIONS_REQUESTS:false}
+            enableBackpressureHandling: ${SENTRY_ENABLE_BACKPRESSURE_HANDLING:}
+            forceInit: ${SENTRY_FORCE_INIT:false}
+            strictTraceContinuation: ${SENTRY_STRICT_TRACE_CONTINUATION:false}
+            orgId: ${SENTRY_ORG_ID:}
+            contextTags: ${SENTRY_CONTEXT_TAGS:}
+            ignoredErrors: ${SENTRY_IGNORED_ERRORS:}
+            ignoredTransactions: ${SENTRY_IGNORED_TRANSACTIONS:}
+            ignoredSpanOrigins: ${SENTRY_IGNORED_SPAN_ORIGINS:}
             springSecurityUser: ${SENTRY_SPRING_SECURITY_ENABLED:false}
             springSecurityUserProperties:
                 email: username

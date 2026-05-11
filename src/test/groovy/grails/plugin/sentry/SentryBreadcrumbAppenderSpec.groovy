@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.LoggerContext
 import io.sentry.Sentry
+import io.sentry.SentryItemType
 import io.sentry.SentryOptions
 import io.sentry.SentryLevel
 import org.slf4j.LoggerFactory
@@ -91,5 +92,26 @@ class SentryBreadcrumbAppenderSpec extends Specification {
             SentryBreadcrumbAppender.toSentryLevel(Level.INFO) == SentryLevel.INFO
             SentryBreadcrumbAppender.toSentryLevel(Level.WARN) == SentryLevel.WARNING
             SentryBreadcrumbAppender.toSentryLevel(Level.ERROR) == SentryLevel.ERROR
+    }
+
+    def "structured logs are sent without turning info logs into events"() {
+        given:
+            Sentry.close()
+            options.logs.enabled = true
+            Sentry.init(options)
+            sentryAppender.config = new SentryConfig([
+                    dsn: 'https://foo:bar@example.com/123',
+                    levels: ['ERROR'],
+                    sentryLogsEnabled: true,
+                    sentryLogsMinimumLevel: 'INFO'
+            ])
+
+        when:
+            logger.info('Structured {}', 'log')
+            Sentry.flush(5000)
+
+        then:
+            RecordingTransport.items(SentryItemType.Log).size() == 1
+            RecordingTransport.items(SentryItemType.Event).empty
     }
 }

@@ -15,10 +15,12 @@
  */
 package grails.plugin.sentry
 
+import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.status.ErrorStatus
 import ch.qos.logback.core.status.Status
 import groovy.transform.CompileStatic
+import io.sentry.Hint
 import io.sentry.Sentry
 import io.sentry.logback.SentryAppender
 
@@ -38,6 +40,10 @@ class GrailsLogbackSentryAppender extends SentryAppender {
             return
         }
 
+        if (config.sentryLogsEnabled && event.level.isGreaterOrEqual(Level.toLevel(config.sentryLogsMinimumLevel))) {
+            captureLog(event)
+        }
+
         if ((config.levels ?: SentryConfig.defaultLevels).contains(event.level)) {
             // withScope creates an isolated thread-local scope for this event only,
             // preventing concurrent log events from clobbering each other's extras
@@ -45,7 +51,9 @@ class GrailsLogbackSentryAppender extends SentryAppender {
                 event.loggerContextVO.propertyMap.each { String k, String v ->
                     scope.setExtra(k, v)
                 }
-                super.append(event)
+                Hint hint = new Hint()
+                hint.set('syntheticException', event)
+                Sentry.captureEvent(createEvent(event), hint)
             }
         }
     }

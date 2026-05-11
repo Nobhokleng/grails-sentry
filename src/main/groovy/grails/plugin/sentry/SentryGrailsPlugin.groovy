@@ -104,10 +104,6 @@ class SentryGrailsPlugin extends Plugin {
                             options.profilesSampleRate = pluginConfig.profilesSampleRate
                         }
 
-                        if (pluginConfig.tracePropagationTargets != null && !pluginConfig.tracePropagationTargets.empty) {
-                            options.tracePropagationTargets = pluginConfig.tracePropagationTargets
-                        }
-
                         if (pluginConfig.traceOptionsRequests != null) {
                             options.traceOptionsRequests = pluginConfig.traceOptionsRequests
                         }

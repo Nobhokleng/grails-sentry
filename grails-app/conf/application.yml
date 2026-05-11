@@ -37,6 +37,9 @@ environments:
         grails:
             plugin:
                 sentry:
+                    # The plugin's own integration tests intentionally enable Sentry
+                    # against a fake DSN so the Logback pipeline can be exercised.
+                    # Consuming applications should normally keep Sentry disabled in test.
                     active: true
                     dsn: 'https://foo:bar@example.com/123'
                     logHttpRequest: true
