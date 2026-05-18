@@ -62,7 +62,12 @@ class GrailsLogbackSentryAppender extends SentryAppender {
     void addStatus(Status status) {
         if (status instanceof ErrorStatus) {
             // this error is otherwise completely swallowed
-            status.throwable?.printStackTrace()
+            // NOTE: We cannot use standard loggers (like SLF4J log.error) here,
+            // because this is an Appender. Emitting a new log event inside an Appender
+            // can cause an infinite loop/StackOverflow if the Appender itself triggers
+            // another error. Thus, we fall back to System.err.
+            System.err.println("SentryAppender Error: ${status.message}")
+            status.throwable?.printStackTrace(System.err)
         }
         super.addStatus(status)
     }
