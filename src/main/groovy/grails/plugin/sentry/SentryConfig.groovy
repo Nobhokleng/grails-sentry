@@ -54,7 +54,7 @@ import groovy.transform.CompileStatic
 @CompileStatic
 class SentryConfig {
 
-    static List<Level> defaultLevels = [Level.ERROR, Level.WARN]
+    static Set<Level> defaultLevels = [Level.ERROR, Level.WARN] as Set
 
     SentryConfig(Map config = [:]) {
         if (!config) {
@@ -87,10 +87,10 @@ class SentryConfig {
 
         if (config.levels) {
             if (config.levels instanceof List) {
-                levels = (config.levels as List).collect { Level.toLevel(it.toString().toUpperCase()) }
+                levels = (config.levels as List).collect { Level.toLevel(it.toString().toUpperCase()) } as Set
             }
             if (config.levels instanceof String) {
-                levels = (config.levels as String).split(",").collect { Level.toLevel(it.toString().toUpperCase()) }
+                levels = (config.levels as String).split(",").collect { Level.toLevel(it.toString().toUpperCase()) } as Set
             }
         }
 
@@ -212,7 +212,7 @@ class SentryConfig {
     String environment
     String serverName
     String dist
-    List<Level> levels = defaultLevels
+    Set<Level> levels = defaultLevels
     Map<String, String> tags = [:]
     boolean logClassName = false
     boolean logHttpRequest = false

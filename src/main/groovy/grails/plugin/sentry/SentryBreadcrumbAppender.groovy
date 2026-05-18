@@ -29,7 +29,7 @@ class SentryBreadcrumbAppender extends AppenderBase<ILoggingEvent> {
 
         // Skip events that will be captured as full Sentry errors by GrailsLogbackSentryAppender;
         // those events need not also appear as breadcrumbs in themselves
-        List<Level> sentryLevels = config.levels ?: SentryConfig.defaultLevels
+        Set<Level> sentryLevels = config.levels ?: SentryConfig.defaultLevels
         if (sentryLevels.contains(event.level)) {
             return
         }
